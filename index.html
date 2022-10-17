@@ -136,7 +136,9 @@
 
                     fetch = hook(fetch, {
                         apply: async function (target, thisArg, args) {
+                            const startTime = Date.now();
                             const response = await target.apply(thisArg, args);
+                            const endTime = Date.now();
                             const streams = await copyReadableStream(response.body, 2);
                             response.text = async function text() {
                                 return (new TextDecoder).decode(await readReadableStream(streams[0]));
@@ -150,7 +152,7 @@
                                 request: {
                                     url: args[0],
                                     options: args[1],
-                                    time: Date.now()
+                                    time: startTime
                                 },
                                 response: {
                                     type: response.type,
@@ -158,10 +160,61 @@
                                     statusText: response.statusText,
                                     body: (new TextDecoder).decode(await readReadableStream(streams[1])),
                                     headers: Object.fromEntries(Array.from(response.headers)),
-                                    time: Date.now()
+                                    time: endTime
                                 }
                             });
                             return response;
+                        }
+                    });
+
+                    XMLHttpRequest = hook(XMLHttpRequest, {
+                        construct(target, args) {
+                            const output = new target(...args);
+                            let startTime;
+                            output.open = hook(output.open, {
+                                apply: function(target, thisArg, args) {
+                                    startTime = Date.now();
+                                }
+                            });
+                            output.addEventListener = hook(output.addEventListener, {
+                                apply: function (target, thisArg, args) {
+                                    if (args[0] === "load") {
+                                        args[1] = hook(args[1], {
+                                            apply: function (target, thisArg, args) {
+                                                const headers = thisArg.getAllResponseHeaders();
+                                                const arr = headers.trim().split(/[\r\n]+/);
+                                                const headerMap = {};
+                                                arr.forEach((line) => {
+                                                    const parts = line.split(': ');
+                                                    const header = parts.shift();
+                                                    const value = parts.join(': ');
+                                                    headerMap[header] = value;
+                                                });
+                                                channel.postMessage({
+                                                    type: "httpRequest",
+                                                    method: "XMLHttpRequest",
+                                                    request: {
+                                                        url: thisArg.responseURL,
+                                                        options: args[1],
+                                                        time: startTime
+                                                    },
+                                                    response: {
+                                                        type: thisArg.responseText,
+                                                        status: thisArg.status,
+                                                        statusText: thisArg.statusText,
+                                                        body: thisArg.responseText,
+                                                        headers: headerMap,
+                                                        time: endTime
+                                                    }
+                                                });
+                                                return target.apply(thisArg, ...args);
+                                            }
+                                        });
+                                    }
+                                    return target.call(thisArg, ...args);
+                                }
+                            });
+                            return output;
                         }
                     });
 
