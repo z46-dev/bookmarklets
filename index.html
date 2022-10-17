@@ -1,0 +1,276 @@
+
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>Bookmarklets</title>
+    </head>
+    <body>
+        <script>
+            const modules = [{
+                name: "Verification",
+                description: "Verify if Bookmarklets can run on your browser or a page. If nothing pops up, then they probably don't work.",
+                code: (function() {
+                    alert("Bookmarklets can run on your browser in this current page!");
+                })
+            }, {
+                name: "Find and Replace",
+                description: "Find and replace text in a page.",
+                code: (function() {
+                    const find = prompt("Find:");
+                    const replace = prompt("Replace:");
+                    const regex = new RegExp(find, "g");
+                    const elements = document.getElementsByTagName("*");
+                    for (let i = 0; i < elements.length; i++) {
+                        const element = elements[i];
+                        for (let j = 0; j < element.childNodes.length; j++) {
+                            const node = element.childNodes[j];
+                            if (node.nodeType === 3) {
+                                const text = node.nodeValue;
+                                const replacedText = text.replace(regex, replace);
+                                if (replacedText !== text) {
+                                    element.replaceChild(document.createTextNode(replacedText), node);
+                                }
+                            }
+                        }
+                    }
+                })
+            }, {
+                name: "Create Developer Window",
+                description: "Create a mock of the Chrome Developer Window for this current site.",
+                shit: () => {
+                    // Hooking into stuff
+                    /*function hook(target, handler) {
+                        const string = target.toString();
+                        target = new Proxy(target, handler);
+                        target.toString = function toString() {
+                            return string;
+                        }
+                        return target;
+                    }
+                    function getNewDefineProperty() {
+                        const newWindow = window.open();
+                        const output = newWindow.Object.defineProperty;
+                        newWindow.close();
+                        return output;
+                    }
+                    const defineProperty = Object.defineProperty || getNewDefineProperty();
+                    window.XMLHttpRequest = hook(window.XMLHttpRequest, {
+                        construct: function (target, args, newTarget) {
+                            const output = new target(...args);
+
+                            function hookIntoOnload() {
+                                if (output.onload != null) {
+                                    output.onload = hook(output.onload, {
+                                        apply: function (target, thisArg, args) {
+                                            if (output.responseURL.includes("mockups")) {
+                                                mockups = output.response;
+                                            }
+                                            target.call(thisArg, ...args);
+                                        }
+                                    });
+                                    return;
+                                }
+                                setTimeout(hookIntoOnload);
+                            }
+                            hookIntoOnload();
+                            return output;
+                        }
+                    });*/
+                },
+                code: function() {
+                    const devWindow = window.open("helo", "_blank");
+                    const scriptTagName = "script";
+                    const channelName = Date.now();
+                    const channel = new BroadcastChannel(channelName);
+                    window.channel = channel;
+
+                    function createReadableStream(data) {
+                        return new ReadableStream({
+                            start(controller) {
+                                controller.enqueue(data);
+                                controller.close();
+                            }
+                        });
+                    }
+
+                    async function readReadableStream(stream) {
+                        let data = new Uint8Array(),
+                            reader = stream.getReader();
+                        while (true) {
+                            const page = await reader.read();
+                            if (page.done) {
+                                break;
+                            }
+                            data = new Uint8Array([...data, ...page.value]);
+                        }
+                        return data;
+                    }
+
+                    async function copyReadableStream(stream, amount) {
+                        const data = await readReadableStream(stream);
+                        const streams = [];
+                        for (let i = 0; i < amount; i++) {
+                            streams.push(createReadableStream(data));
+                        }
+                        return streams;
+                    }
+
+                    function hook(target, handler) {
+                        const string = target.toString();
+                        target = new Proxy(target, handler);
+                        target.toString = function toString() {
+                            return string;
+                        };
+                        return target;
+                    }
+
+                    function getNewDefineProperty() {
+                        const newWindow = window.open();
+                        const output = newWindow.Object.defineProperty;
+                        newWindow.close();
+                        return output;
+                    }
+
+                    const defineProperty = Object.defineProperty || getNewDefineProperty();
+
+                    fetch = hook(fetch, {
+                        apply: async function (target, thisArg, args) {
+                            const response = await target.apply(thisArg, args);
+                            const streams = await copyReadableStream(response.body, 2);
+                            response.text = async function text() {
+                                return (new TextDecoder).decode(await readReadableStream(streams[0]));
+                            };
+                            response.json = async function json() {
+                                return JSON.parse(await response.text());
+                            };
+                            channel.postMessage({
+                                type: "httpRequest",
+                                method: "fetch",
+                                request: {
+                                    url: args[0],
+                                    options: args[1],
+                                    time: Date.now()
+                                },
+                                response: {
+                                    type: response.type,
+                                    status: response.status,
+                                    statusText: response.statusText,
+                                    body: (new TextDecoder).decode(await readReadableStream(streams[1])),
+                                    headers: Object.fromEntries(Array.from(response.headers)),
+                                    time: Date.now()
+                                }
+                            });
+                            return response;
+                        }
+                    });
+
+                    devWindow.document.write(`
+                        <!DOCTYPE html>
+                        <html>
+                            <head>
+                                <meta charset="utf-8">
+                                <title>Developer Window - ${location.href}</title>
+                                <style>
+                                    * {
+                                        font-family: sans-serif;
+                                    }
+                                    .important {
+                                        font-family: "Courier New", monospace;
+                                    }
+                                    td, th {
+                                        border: 1px solid #dddddd;
+                                        text-align: center;
+                                        font-family: "Courier New", monospace;
+                                    }
+                                    tr:nth-child(even) {
+                                        background-color: #dddddd;
+                                    }
+                                    thead tr td {
+                                        background-color: white;
+                                        position: sticky;
+                                        top: 0;
+                                    }
+                                </style>
+                            </head>
+                            <body>
+                                <h1>Developer Window</h1>
+                                <h2>Http Requests</h2>
+                                <table style="display: block; height: 100px; width: 100%; overflow: auto;">
+                                    <thead style="width: 100%;">
+                                        <tr>
+                                            <td>Method</td>
+                                            <td>URL</td>
+                                            <td>Status</td>
+                                            <td>Body</td>
+                                            <td>Time</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody style="width: 100%;" id="httpRequests"></tbody>
+                                </table>
+                                <${scriptTagName}>
+                                    function getTinyURL(url) {
+                                        return fetch("https://tinyurl.com/api-create.php?url=" + url).then(response => response.text());
+                                    }
+                                    function applyTD(tr, text, clickable = false) {
+                                        const td = document.createElement("td");
+                                        td.textContent = clickable ? "Click to view" : text;
+                                        if (clickable) {
+                                            td.onclick = () => {
+                                                let k = window.open("lol", "_blank", "width=500,height=500");
+                                                k.document.write(\`
+                                                    <!DOCTYPE html>
+                                                    <html>
+                                                        <head>
+                                                            <meta charset="utf-8">
+                                                            <title>Viewing Response</title>
+                                                            <style>
+                                                                body, textarea {
+                                                                    font-family: sans-serif;
+                                                                    width: 100%;
+                                                                    height: 100%;
+                                                                    padding: 0px;
+                                                                    margin: 0px;
+                                                                }
+                                                            </style>
+                                                        </head>
+                                                        <body>
+                                                            <textarea rows=50>\${text}</textarea>
+                                                        </body>
+                                                    </html>
+                                                \`);
+                                            }
+                                        }
+                                        tr.appendChild(td);
+                                    }
+                                    const channel = new BroadcastChannel(${channelName});
+                                    const httpRequests = document.getElementById("httpRequests");
+                                    channel.onmessage = function(message) {
+                                        message = message.data;
+                                        if (message.type === "httpRequest") {
+                                            const unit = document.createElement("tr");
+                                            applyTD(unit, message.method);
+                                            applyTD(unit, message.request.url);
+                                            applyTD(unit, message.response.status);
+                                            applyTD(unit, message.response.body, true);
+                                            applyTD(unit, message.response.time - message.request.time);
+                                            httpRequests.appendChild(unit);
+                                        }
+                                    }
+                                </${scriptTagName}>
+                            </body>
+                        </html>
+                    `);
+                }
+            }];
+            modules.forEach(function setup(module) {
+                const code = module.code.toString().split("\n").map(line => line.trim()).join(" ").trim();
+                document.body.innerHTML += `
+                    <h3>${module.name}</h3>
+                    <span>${module.description}</span><br/>
+                    <a href='javascript:(${code})()'>${module.name}</a><br/>
+                `;
+            });
+        </script>
+    </body>
+</html>
